@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+     <meta charset="UTF-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <title>ETRSOFT Kontrol</title>
+     <link rel="stylesheet" href="css/style.css">
+
+</head>
+<body>
+    <header><img src="logo.png" alt="Site Logo" class="logo"> </header>
+  <div class="container">
+    
+    <table id="data-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Hesap Kodu</th>
+          <th>Toplam Borç</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Veriler buraya eklenecek -->
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+async function fetchData() {
+  try {
+    const response = await fetch('/api/data');
+    const data = await response.json();
+    const tableBody = document.querySelector('#data-table tbody');
+
+    tableBody.innerHTML = '';
+
+    const groupedData = stagesGroup(data);
+    const endData = totalData(groupedData);
+
+    updateTable(endData, tableBody);
+  } catch (error) {
+    console.error('Veri çekme hatası:', error);
+  }
+}
+
+function stagesGroup(data) {
+  const groupedData = {};
+
+  data.forEach(row => {
+    const { hesap_kodu, hesap_adi, borc } = row;
+
+    const parts = hesap_kodu.split('.');
+    const part1 = parts[0];
+    const part2 = parts.slice(0, 2).join('.');
+    const level3 = parts.slice(0, 3).join('.');
+
+    if (!groupedData[part1]) {
+      groupedData[part1] = { id: part1, hesap_adi: part1, borc: 0, subACC: {} };
+    }
+
+    if (part2 !== part1 && !groupedData[part1].subACC[part2]) {
+      groupedData[part1].subACC[part2] = { id: part2, hesap_adi: part2, borc: 0, subACC: {} };
+    }
+
+    if (level3 !== part2 && level3 !== part1) {
+      if (!groupedData[part1].subACC[part2].subACC[level3]) {
+        groupedData[part1].subACC[part2].subACC[level3] = { id: level3, hesap_adi: level3, borc: 0 };
+      }
+      groupedData[part1].subACC[part2].subACC[level3].borc += parseFloat(borc) || 0;
+    } else if (part2 !== part1) {
+      groupedData[part1].subACC[part2].borc += parseFloat(borc) || 0;
+    } else {
+      groupedData[part1].borc += parseFloat(borc) || 0;
+    }
+  });
+
+  return groupedData;
+}
+
+function totalData(groupedData) {
+  const calculateData = {};
+
+  Object.keys(groupedData).forEach(part1 => {
+    const part1Data = groupedData[part1];
+    const totalSubBorc = calculateSubAccGroupTotals(part1Data.subACC);
+    calculateData[part1] = {
+      ...part1Data,
+      borc: totalSubBorc,
+    };
+  });
+
+  return calculateData;
+}
+
+function calculateSubAccGroupTotals(subACC) {
+  let total = 0;
+
+  Object.values(subACC).forEach(subACCtotal => {
+    total += subACCtotal.borc;
+  });
+
+  return total;
+}
+
+function updateTable(groupedData, tableBody) {
+  tableBody.innerHTML = '';
+
+  const rows = [];
+  Object.keys(groupedData).forEach(part1 => {
+    const part1Data = groupedData[part1];
+    rows.push(createRow(part1, part1Data.hesap_adi, part1Data.borc, true, 'main', part1));
+
+    Object.keys(part1Data.subACC).forEach(part2 => {
+      const part2Data = part1Data.subACC[part2];
+      rows.push(createRow(part2, part2Data.hesap_adi, part2Data.borc, true, 'sub', part2, part1));
+
+      Object.keys(part2Data.subACC).forEach(level3 => {
+        const level3Data = part2Data.subACC[level3];
+        rows.push(createRow(level3, level3Data.hesap_adi, level3Data.borc, false, 'sub', level3, part2));
+      });
+    });
+  });
+
+  rows.forEach(row => tableBody.appendChild(row));
+
+  // Initialize all rows as invis except the top level
+  initializeVisibility();
+  
+  const toggleButtons = document.querySelectorAll('.toggle-btn');
+  toggleButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const row = button.closest('tr');
+      const groupId = button.dataset.groupId;
+      const isCurrentlyVisible = !row.nextElementSibling.classList.contains('invis');
+      toggleVisibility(groupId, !isCurrentlyVisible);
+      button.textContent = isCurrentlyVisible ? '+' : '-';
+    });
+  });
+}
+
+function createRow(kirilim, hesap_adi, borc, isMain, level, parentId = '') {
+  const tr = document.createElement('tr');
+  tr.classList.add(level);
+  tr.dataset.groupId = kirilim;
+  tr.innerHTML = `
+    <td>${isMain ? `<span class="toggle-btn" data-group-id="${kirilim}">+</span>` : ''}</td>
+    <td>${kirilim}</td>
+    <td>${borc.toFixed(2)}</td>
+  `;
+  return tr;
+}
+
+function toggleVisibility(groupId, isVisible) {
+  const rows = document.querySelectorAll(`[data-group-id^="${groupId}."]`);
+  rows.forEach(row => {
+    row.classList.toggle('invis', !isVisible);
+  });
+}
+
+function initializeVisibility() {
+  const allSubRows = document.querySelectorAll('tr.sub');
+  allSubRows.forEach(row => {
+    row.classList.add('invis');
+  });
+}
+
+window.onload = fetchData;
+  </script>
+</body>
+</html>
